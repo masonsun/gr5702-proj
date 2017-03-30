@@ -1,0 +1,144 @@
+setwd("/Users/KJ/OneDrive/Projects/eda/Proj/")
+rm(list=ls())
+
+library(tidyverse)
+library(reshape2)
+
+Y16Q4 <- read.csv("data/Indego_Trips_2016Q4.csv", header=T)
+# str(Y16Q4)
+df <- Y16Q4[,-c(1,6,7,9,10,12)]
+
+# Data Inspection
+df$duration <- df$duration/60
+# max(df$duration)
+# table(df$passholder_type)
+# table(df$passholder_type, df$trip_route_category)
+# length(unique(df$bike_id))
+# length(unique(df$start_station_id))
+# length(unique(df$end_station_id))
+
+# Time + Date Separation
+df$s_hour <- format(as.POSIXct(strptime(df$start_time,"%m/%d/%Y %H:%M",tz="")) ,format = "%H")
+df$e_hour <- format(as.POSIXct(strptime(df$end_time,"%m/%d/%Y %H:%M",tz="")) ,format = "%H")
+df$month <- format(as.POSIXct(strptime(df$start_time,"%m/%d/%Y %H:%M",tz="")) ,format = "%m")
+df$day <- format(as.POSIXct(strptime(df$start_time,"%m/%d/%Y %H:%M",tz="")) ,format = "%d")
+df <- df[,-c(2,3)]
+
+
+# Preliminary Data Analysis
+
+# 1. Total Counts over Passholder Types (Group by Months)
+passholder <- df %>% group_by(month,day,passholder_type) %>% summarize(count = n())
+foo <- passholder %>% group_by(month,day) %>% summarize(count = sum(count))
+foo$passholder_type <- "All"
+colnames(foo)
+foo <- foo[,c("month","day","passholder_type","count")]
+passholder <- rbind(passholder, foo)
+rm(foo)
+ggplot(passholder, aes(x = day, y = count, color = month)) +
+  geom_line(aes(group = month)) +
+  facet_wrap(~ passholder_type, scales = "free", ncol=1)
+
+# As we can see from the Total Counts over Passholder Types, there are some information worth mentioning:
+# 1. There seems to be no clear patterns of daily trips variations among different kinds of passholder types, before we perform time series analysis.
+# 2. However, we know in some past dates, there were more people travelling with public bicycles than other days, like the most obvious time period from 11/01/2016 to 11/04/2016.
+# 3. There are less people travelling in December than in October and November.
+# 4. ...
+
+
+# 2. Duration Plot (by minutes)
+
+plot(df$duration)
+hour <- df$duration
+dur <- cut(hour, c(0,5,10,15,20,30,60,120,240,1440))
+table(dur)
+plot(dur, ylim=c(0,60000), main='Duration Distribution\nby minutes')
+
+# As we can see from the Duration Plot, we see several clear patterns:
+#
+# 1. Most people choose public bicycles for short commutes. The most popular duration of the trip is 5-10 minutes. The second popular duration of the trip is 10-15 minutes. Most of the trips are within 30 minutes.
+# 2. Summarizing all durations, 2-to-4-hour trips only make up 0.9% and over-4-hour trips make up 0.7%. 
+# 3. Even 0-to-5-minute trips make up 13.2% of the total trips.
+# 4. ...
+
+
+# 3. Histogram of Start/End Hour
+theme_set(theme_classic())
+
+g1 <- ggplot(df, aes(s_hour)) + scale_fill_brewer(palette = "Spectral") + 
+  geom_histogram(aes(fill=trip_route_category), stat="count", col="black") + 
+  labs(title="Histogram of Start Hour", subtitle="across Trip Route Categories") 
+
+g2 <- ggplot(df, aes(e_hour)) + scale_fill_brewer(palette = "Spectral") + 
+  geom_histogram(aes(fill=trip_route_category), stat="count", col="black") + 
+  labs(title="Histogram of End Hour", subtitle="across Trip Route Categories") 
+
+g3 <- ggplot(df, aes(s_hour)) + scale_fill_brewer(palette = "Spectral") + 
+  geom_histogram(aes(fill=passholder_type), stat="count", col="black") + 
+  labs(title="Histogram of Start Hour", subtitle="across Passholder Types") 
+
+g4 <- ggplot(df, aes(e_hour)) + scale_fill_brewer(palette = "Spectral") + 
+  geom_histogram(aes(fill=passholder_type), stat="count", col="black") + 
+  labs(title="Histogram of End Hour", subtitle="across Passholder Types") 
+
+# Multiple plot function
+# Source: http://www.cookbook-r.com
+# ggplot objects can be passed in ..., or to plotlist (as a list of ggplot objects)
+# - cols:   Number of columns in layout
+# - layout: A matrix specifying the layout. If present, 'cols' is ignored.
+#
+# If the layout is something like matrix(c(1,2,3,3), nrow=2, byrow=TRUE),
+# then plot 1 will go in the upper left, 2 will go in the upper right, and
+# 3 will go all the way across the bottom.
+multiplot <- function(..., plotlist=NULL, file, cols=1, layout=NULL) {
+  require(grid)
+  # Make a list from the ... arguments and plotlist
+  plots <- c(list(...), plotlist)
+  numPlots = length(plots)
+  # If layout is NULL, then use 'cols' to determine layout
+  if (is.null(layout)) {
+    # Make the panel
+    # ncol: Number of columns of plots
+    # nrow: Number of rows needed, calculated from # of cols
+    layout <- matrix(seq(1, cols * ceiling(numPlots/cols)),
+                     ncol = cols, nrow = ceiling(numPlots/cols))
+  }
+  if (numPlots==1) {
+    print(plots[[1]])
+  } else {
+    # Set up the page
+    grid.newpage()
+    pushViewport(viewport(layout = grid.layout(nrow(layout), ncol(layout))))
+    # Make each plot, in the correct location
+    for (i in 1:numPlots) {
+      # Get the i,j matrix positions of the regions that contain this subplot
+      matchidx <- as.data.frame(which(layout == i, arr.ind = TRUE))
+      print(plots[[i]], vp = viewport(layout.pos.row = matchidx$row,
+                                      layout.pos.col = matchidx$col))
+    }
+  }
+}
+
+multiplot(g1, g2, g3, g4, cols=2)
+
+# As we can see from the Histogram of Start/End Hour across Trip Route Categories and Passholder Types, we see several clear patterns:
+# 
+# 1. The most popular renting/returning hours are 8am and 5pm, which are the time periods that people go to/leave work/school.
+# 2. One-way trip and 30-day pass are most popular according to our dataset. Only a small amount of people choose flexible account, the rest are just walk-up renters.
+# 3. Peak renting hours are: 7am-10am, 2pm-8pm. Peak returning hours are: 8am-10am, 3pm-8pm, which are an hour later than the popular renting hours.
+# 4. ...
+
+
+# 4. Bike Using Frequencies
+freq <- table(df$bike_id)
+fre <- cut(freq, c(0,50,100,150,200,250,300))
+table(fre)
+plot(fre, ylim=c(0,500), main='Bike Using Frequencies')
+
+# We would like to study the depreciation of bikes. Hence we plot the total bike using frequencies with the three month we choose.
+# 
+# 1. Most bikes are used around 100 to 250 times from October 2016 to December 2016.
+# 2. About 5.7% of the total bikes have been used for more than 250 times, while 4.5% of the total bikes are not as commonly used (< 100 times).
+# 3. Since we are not able to know the real condition of each bike, we would suggest to relocate a proportion of newer bikes to popular locations for managing depreciation, suppose relocation is not as expensive.
+# 4. However, suppose it costs a lot to relocate bikes (in most cases), we would suggest Indego to mainly focus on tracing the damage of those frequently used bikes and do more maintainance.
+# 5. ...
