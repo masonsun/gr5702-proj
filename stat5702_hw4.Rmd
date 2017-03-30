@@ -1,0 +1,87 @@
+---
+title: "STAT 5702: Homework 4"
+output: html_notebook
+---
+
+### Introduction 
+
+Indego is the de facto bike sharing network in Philadelphia. It has become a popular, more eco-friendly alternative for short trips across the city since launching in late April of 2015. However, little has been done to analyze the publicly available data associated with Indego. Thus, we think it would be beneficial to the public if we quantify and assess several pertinent features and patterns related to Indego, generating insights on how the bike sharing network is utilized across the city. More specifically, we want to examine volume of bike traffic across different time sections, duration of rides, travel patterns, and kiosk hotspots. Time permitting, we also want to examine real-time frequency of trips across the city.<br>
+
+Our objective starting out was to examine bike share programs in the most populated cities across the eastern United States. Since Philadelphia is the second largest city satisfying this criteria and has a relatively new bike share program, we thought the Indego dataset would be an ideal choice. The dataset is publicly available on Indego's website (https://www.rideindego.com/about/data/). It can be found by clicking the <i>About</i> panel and then selecting <i>Data</i>.
+
+### Team 
+
+1. Hung-Shi Lin (hl2997)  
+2. Mason Sun (zs2321)  
+3. Kejia Shi (ks3403)  
+
+Each team member will contribute equally to the project. This applies to data preprocessing, exploratory data analysis, statistical modelling, visualization, and writing the report.
+
+### Preliminary analysis
+```{r}
+library(tidyverse)
+data = read.csv("Indego_trips_Q4_2016.csv")
+```
+
+Here we will examine the Indego dataset of the latest quarter for which data is available. This is Q4 of 2016 in our case. The four variables we will be examining are as follows:
+
+1. 
+
+
+Choose four variables that you consider to be important and begin analyzing them.
+
+```{r}
+dur.mins =  data$duration / 60
+ggplot(data) + 
+  geom_histogram(aes(dur.mins)) + 
+  labs(title="Duration of rides under an hour", x="Duration (mins)", y="Frequency") + 
+  xlim(0,60)
+```
+
+```{r}
+library(dplyr)
+library(ggplot2)
+hotspot = data
+id = read.csv('indego_stations.csv')
+station_id = select(hotspot, start_station_id)
+stations = right_join(id, station_id, by = c("Station.ID" = "start_station_id"))
+station_df = data.frame(table(stations['Station.Name']))
+total_station = nrow(station_df)
+sub_station_df = station_df[1:20,]
+sub_station_df$Var1 <- as.character(sub_station_df$Var1)
+ggplot(sub_station_df, aes(x =reorder(Var1, Freq), y = Freq)) + geom_bar(stat = 'identity')+coord_flip()
+top3_weight = sum(sub_station_df[1:3,'Freq']) / sum(sub_station_df[,'Freq'])
+cat("total stations: ", total_station, '\n')
+cat('weight of three top hotspot station: ', top3_weight, '\n')
+```
+
+```{r}
+library(dplyr)
+library(ggplot2)
+
+Y16Q4 <- data
+df <- Y16Q4[,-c(1,6,7,9,10,12)]
+
+# Data Inspection
+df$duration <- df$duration/60
+
+# Time + Date Separation
+df$s_hour <- format(as.POSIXct(strptime(df$start_time,"%m/%d/%Y %H:%M",tz="")) ,format = "%H")
+df$e_hour <- format(as.POSIXct(strptime(df$end_time,"%m/%d/%Y %H:%M",tz="")) ,format = "%H")
+df$month <- format(as.POSIXct(strptime(df$start_time,"%m/%d/%Y %H:%M",tz="")) ,format = "%m")
+df$day <- format(as.POSIXct(strptime(df$start_time,"%m/%d/%Y %H:%M",tz="")) ,format = "%d")
+df <- df[,-c(2,3)]
+
+# Preliminary Data Analysis
+# 1. Total Counts over Passholder Types (Group by Months)
+passholder <- df %>% group_by(month,day,passholder_type) %>% summarize(count = n())
+foo <- passholder %>% group_by(month,day) %>% summarize(count = sum(count))
+foo$passholder_type <- "All"
+colnames(foo)
+foo <- foo[,c("month","day","passholder_type","count")]
+passholder <- rbind(passholder, foo)
+rm(foo)
+ggplot(passholder, aes(x = day, y = count, color = month)) +
+  geom_line(aes(group = month)) +
+  facet_wrap(~ passholder_type, scales = "free", ncol=1)
+```
