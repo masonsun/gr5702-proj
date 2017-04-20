@@ -1,0 +1,443 @@
+---
+title: "STAT 5702: Final Project"
+output: html_notebook
+---
+
+## Introduction
+
+#### Motivation
+ 
+Indego is the de facto bike sharing network in Philadelphia. It has become a popular, more eco-friendly alternative for short trips across the city since launching in late April of 2015. However, little has been done to analyze the publicly available data associated with Indego. Thus, we think it would be beneficial to the public if we quantify and assess several pertinent features and patterns related to Indego, generating insights on how the bike sharing network is utilized across the city. More specifically, we want to more closely study and answer questions related to the following four themes:
+
+* Station usage (usage rate, peak periods, popular rental/return stations, etc.) 
+* Daily traffic (popular routes, volume across different sections, travel patterns, etc.)
+* Trip durations (length of trips, median rental/return time, etc.)
+* User profiles (type of passholders, frequency of round-trips, seasonality, etc.)
+
+Each of the above four features will be explained in finer details in subsequent sections. To realize this objective, we have created static plots (shown in this notebook) to describe salient themes as well as a Shiny app ([Github](https://github.com/masonsun/gr5702-proj)), which also contains real-time status updates of all Indego stations across Philadelphia. We will also provide instructions on runnning our app further down in our report.
+
+Our objective starting out was to examine bike share programs in the most densely populated cities across the eastern United States, mainly via exploratory data analysis and visualization techinques. We initially considered NYC's Citibike as a promising candidate, but it has already been extensively analyzed (see [Todd Schneider's blogpost](http://toddwschneider.com/posts/a-tale-of-twenty-two-million-citi-bikes-analyzing-the-nyc-bike-share-system/) for an excellent example). The marginal returns of analyzing such a dataset are thus minimal, if not, nil. As a result, we decided on Philadelphia, primarliy for two reasons: it is the second largest city satisfying our predefined criteria (after NYC), and also has a relatively new bike share program. Thus, we thought the Indego dataset would be an ideal choice. It would also be interesting to use our dataset to compare and contrast New York and Philadelphia's bike share programs.
+
+#### Data Source
+
+The dataset is publicly available on [Indego's website](https://www.rideindego.com/about/data/). It can be found by clicking the <i>About</i> panel and then selecting <i>Data</i>. All quarterly data are listed under the section <i>The Data</i>, in which each station's information is available through the <i>Station Table</i> hyperlink. In addition, real-time data used in our Shiny app is available under the section <i>Indego Station Status</i> via the GeoJSON hyperlink.
+
+## Team
+
+1. Kejia Shi (ks3403): data processing, exploratory data analysis, visualization (static and Shiny plots), writing/editing report.
+2. Mason Sun (zs2321): data processing, exploratory data analysis, developing front/backend of Shiny app, writing/editing report.
+3. Hung-Shi Lin (hl2997): proofread code.
+
+## Analysis of Data Quality
+
+#### Quarterly data
+For quarterly data, we had seven files in total, each representing data between Q2 of 2015 and Q4 of 2016, inclusively. Each contained the same columns:
+
+* trip_id (unique identifier of a bike trip)
+* duration (length of trip in seconds or minutes calculated by check-in and check-out time)
+* start_time (clock start time and calendar date)
+* end_time (clock end time and calenar date)
+* start_station_id (unique identifier of starting station)
+* start_lat (latitude of starting station)
+* start_lon (longitude of starting station)
+* end_station_id (unique identifier of end station)
+* end_lat (latitude of end station)
+* end_lon (longitude of end station)
+* bike_id (unique identifier of the bike used during the trip)
+* plan_duration (type of pass by number of days, e.g. thirty-day pass is shown as 30)
+* trip_route_category (round trip or one-way)
+* passholder_type (walkup, IndegoFlex, or Indego30)
+
+We combined these into one data frame (called <i>df</i>) using the code as follows. The description of our preprocessing methods are embedded as comments in the code chunk below. Please see them for more detailed explanations.
+
+```{r, message=FALSE, warning=FALSE}
+### read in quarterly data ###
+Y16Q4 <- read.csv("data/Indego_Trips_2016Q4.csv", header=T)
+Y16Q3 <- read.csv("data/Indego_Trips_2016Q3.csv", header=T)
+Y16Q2 <- read.csv("data/Indego_Trips_2016Q2.csv", header=T)
+Y16Q1 <- read.csv("data/Indego_Trips_2016Q1.csv", header=T)
+Y15Q4 <- read.csv("data/Indego_Trips_2015Q4.csv", header=T)
+Y15Q3 <- read.csv("data/Indego_Trips_2015Q3.csv", header=T)
+Y15Q2 <- read.csv("data/Indego_Trips_2015Q2.csv", header=T)
+
+### preprocessing ###
+# select currently active stations from most recent quarterly dataset
+station_loc <- Y16Q4 %>% dplyr::select(start_station_id, start_lat, start_lon) %>% unique
+# create a dataframe that includes the relevant columns for all active stations by left joining on the active stations and all stations, ignoring any rows that contain missing values
+station_loc <- dplyr::left_join(station_loc, indego_stations, by = c("start_station_id" = "Station.ID")) %>% na.omit %>% .[, -6]
+# rename columns of dataframe
+colnames(station_loc) <- c("id", "lat", "long", "name", "date")
+# remove whitespaces in the date column
+station_loc$date = trim(station_loc$date %>% as.character())
+
+# below are two auxiliary fuction to parse the start/end time and date of each trip, which displays them as a single string. We partition them into separate columns that now display year, month, day, hour, minutes, and date (YYYY-MM-DD).
+
+# for quarters of 2015
+parseTime_15 <- function(df) {
+  df$s_hour <- format(as.POSIXct(strptime(df$start_time,"%m/%d/%y %H:%M",tz="")) ,format = "%H")
+  df$s_min <- format(as.POSIXct(strptime(df$start_time,"%m/%d/%y %H:%M",tz="")) ,format = "%M")
+  df$e_hour <- format(as.POSIXct(strptime(df$end_time,"%m/%d/%y %H:%M",tz="")) ,format = "%H")
+  df$e_min <- format(as.POSIXct(strptime(df$end_time,"%m/%d/%y %H:%M",tz="")) ,format = "%M")
+  df$year <- format(as.POSIXct(strptime(df$start_time,"%m/%d/%y %H:%M",tz="")) ,format = "%Y")
+  df$month <- format(as.POSIXct(strptime(df$start_time,"%m/%d/%y %H:%M",tz="")) ,format = "%m")
+  df$day <- format(as.POSIXct(strptime(df$start_time,"%m/%d/%y %H:%M",tz="")) ,format = "%d")
+  df$date <- format(as.POSIXct(strptime(df$start_time,"%m/%d/%y %H:%M",tz="")) ,format = "%Y-%m-%d")
+  return(df)
+}
+
+# for quarters of 2016, which are defined differently from 2015
+parseTime_16 <- function(df) {
+  df$s_hour <- format(as.POSIXct(strptime(df$start_time,"%m/%d/%Y %H:%M",tz="")) ,format = "%H")
+  df$s_min <- format(as.POSIXct(strptime(df$start_time,"%m/%d/%Y %H:%M",tz="")) ,format = "%M")
+  df$e_hour <- format(as.POSIXct(strptime(df$end_time,"%m/%d/%Y %H:%M",tz="")) ,format = "%H")
+  df$e_min <- format(as.POSIXct(strptime(df$end_time,"%m/%d/%Y %H:%M",tz="")) ,format = "%M")
+  df$year <- format(as.POSIXct(strptime(df$start_time,"%m/%d/%Y %H:%M",tz="")) ,format = "%Y")
+  df$month <- format(as.POSIXct(strptime(df$start_time,"%m/%d/%Y %H:%M",tz="")) ,format = "%m")
+  df$day <- format(as.POSIXct(strptime(df$start_time,"%m/%d/%Y %H:%M",tz="")) ,format = "%d")
+  df$date <- format(as.POSIXct(strptime(df$start_time,"%m/%d/%Y %H:%M",tz="")) ,format = "%Y-%m-%d")
+  return(df)
+}
+
+# pass into respective auxiliary functinos
+Y15Q2 <- parseTime_15(Y15Q2)
+Y15Q3 <- parseTime_15(Y15Q3)
+Y15Q4 <- parseTime_15(Y15Q4)
+Y16Q1 <- parseTime_16(Y16Q1)
+Y16Q2 <- parseTime_16(Y16Q2)
+Y16Q3 <- parseTime_16(Y16Q3)
+Y16Q4 <- parseTime_16(Y16Q4)
+
+# standardize duration into units of seconds
+# also removes columns not needed in subsequent analyses
+dataClean <- function(df) {
+  df$duration <- df$duration / 60
+  df[, -c(1, 3, 4, 6, 7, 9, 10, 12)]
+}
+df <- dataClean(df)
+
+# combine all quarterly data into a single data frame called df
+df <- rbind(Y15Q2, Y15Q3, Y15Q4, Y16Q1, Y16Q2, Y16Q3, Y16Q4)
+# remove individual dataframes
+rm(Y15Q2, Y15Q3, Y15Q4, Y16Q1, Y16Q2, Y16Q3, Y16Q4)
+```
+
+During our initial exploration of the dataset, we realized some of the respective datasets for the quarterly data contained missing values, which would imply that our final dataframe also contains missing values. We thus try to qualitatively visualize these features, show below:
+
+```{r fig.width=5, fig.height=5}
+# ignore columns after passholder_type (col_num = 14) as subsequent columns are defined by us.
+library(extracat)
+visna(df[,c(1:14)])
+```
+
+```{r}
+missing_table = table(is.na(df))
+```
+
+```{r}
+cat("Percentage of missing entries:", missing_table[2]/sum(missing_table)*100)
+```
+
+We see that the proportion of missing values is miniscule relative to our whole dataset (approximately 0.0172%). Moreover, they are all related to latitude and longitude data as well as the bike ID. If need be, we can infer the latitude and longitude from the station name or station ID, but we actively chose to ignore rows corresponding to these missing values since we cannot explicate why these values are missing. We thus choose to ignore them altogether.
+
+#### Indego stations data
+
+For the data detailing the information of each station (indego_stations.csv), we had to perform a bit of data preprocessing to get it into an ideal format. The data contained the columns as follows:
+
+* Station ID (unique identifier of a Indego station)
+* Station Name (name of corresponding Indego station, usually a street address)
+* Go live date (the date that the station started operations)
+* Status (its current status, either active or inactive)
+
+There were many leading and trailing whitespaces in the <i>Station Name</i> column, so performed the following to remove these unneeded characters:
+
+```{r}
+# load stations data
+indego_stations <- read.csv("../data/indego_stations.csv", header=T)
+# a function that removes leading and trailing white spaces of a given string
+trim <- function (x) gsub("^\\s+|\\s+$", "", x)
+# remove whitespaces surrounding each entry in the column of Station.Name
+indego_stations$Station.Name <- trim(indego_stations$Station.Name)
+```
+
+There were no missing values in this table, so we do not provide plots related to this here.
+
+#### GeoJSON
+
+For real-time status updates of Indego stations, we use the semi-structured [GeoJSON dataset](https://www.rideindego.com/stations/json/) provided by Indego. We allow the user to manually refresh our Shiny app, in which we call the GeoJSON file in real-time to get a visualization update (more specific details in subsequent sections). We used the R packpage [geojsonio](https://cran.r-project.org/web/packages/geojsonio/index.html) to unpack and transform this data into a workable format as follows:
+
+```{r}
+library(geojsonio)
+station_status <- fromJSON("https://gbfs.bcycle.com/bcycle_indego/station_status.json")
+```
+
+## Executive Summary
+
+## Main analysis 
+
+In this main section, we present our findings of different facets pertaining to the Indego dataset. We subdivide our analysis into four interrelated sections: station usage, daily traffic, trip duration, and user profiles, in that particualr order. We will walk the reader through our thought process and findings, and finally present some concluding remarks.
+
+#### Station usage
+
+In this section, we examine the usage rate among the different Indego stations across Philadelphia. We motivate our analysis from a holistic perspective towards more granular analysis. This structural layout also holds true for subsequent sections. With that in mind, let us first patterns related to some of the more popular Indego stations. We subdivide our analysis to that of rental and return stations, which reflect popular starting and terminal destinations that people elect to choose in Philadelphia.
+
+```{r results="hide",fig.width=5, fig.height=4}
+# Popular Stations - histogram
+library(gridExtra)
+popular_station <- df %>% group_by(year, month, start_station_id) %>% summarize(rental = n())
+colnames(popular_station)[3] <- "id"
+popular_station$id <- as.character(popular_station$id)
+foo <- df %>% group_by(year, month, end_station_id) %>% summarize(return = n())
+colnames(foo)[3] <- "id"
+foo$id <- as.character(foo$id)
+
+popular_station <- popular_station %>% full_join(foo, by = c("id" = "id", "year" = "year", "month" = "month"))
+rm(foo)
+popular_station <- tidyr::gather(popular_station, type, count, c(4,5))
+colnames(popular_station)[3] <- "id"
+popular_station[is.na(popular_station)] <- 0
+popular_station <- popular_station[popular_station$id!="#N/A",]
+station_loc$id <- as.character(station_loc$id)
+reduced_station <- popular_station %>% left_join(station_loc, by=c("id"="id")) %>% na.omit
+reduced_station$quarter <- (as.numeric(as.character(reduced_station$month)) - 1) %/% 3 + 1
+reduced_station <- reduced_station %>% group_by(id, name, lat, long, type, year, quarter) %>% summarize(count = sum(count))
+
+# Earliest quarter: 2015Q2, Latest quarter: 2016Q4
+reduced_station$year <- as.numeric(reduced_station$year)
+rs_first_rental <- reduced_station[reduced_station$year==2015&reduced_station$quarter==2&reduced_station$type=="rental",]
+rs_last_rental <- reduced_station[reduced_station$year==2016&reduced_station$quarter==4&reduced_station$type=="rental",]
+rs_first_return <- reduced_station[reduced_station$year==2015&reduced_station$quarter==2&reduced_station$type=="return",]
+rs_last_return <- reduced_station[reduced_station$year==2016&reduced_station$quarter==4&reduced_station$type=="return",]
+
+rs_first_rental <- rs_first_rental[order(-rs_first_rental$count),][1:10,]
+rs_last_rental <- rs_last_rental[order(-rs_last_rental$count),][1:10,]
+rs_first_return <- rs_first_return[order(-rs_first_return$count),][1:10,]
+rs_last_return <- rs_last_return[order(-rs_last_return$count),][1:10,]
+
+rs_first_rental$name <- factor(rs_first_rental$name, levels = rs_first_rental$name[order(rs_first_rental$count)])
+rs_last_rental$name <- factor(rs_last_rental$name, levels = rs_last_rental$name[order(rs_last_rental$count)])
+rs_first_return$name <- factor(rs_first_return$name, levels = rs_first_return$name[order(rs_first_return$count)])
+rs_last_return$name <- factor(rs_last_return$name, levels = rs_last_return$name[order(rs_last_return$count)])
+
+p1 <- ggplot(rs_first_rental, aes(x = name, y = count)) +
+  geom_bar(stat = 'identity', color="blue", fill="blue") +
+  geom_text(aes(label=count), hjust=-0.05, size=2.5) +
+  coord_flip() +
+  ggtitle("Most Popular Rental Station 2015Q2") +
+  xlab("Frequency") +
+  ylab("Station") +
+  scale_color_fivethirtyeight("cyl") +
+  theme_fivethirtyeight() +
+  theme(plot.margin = unit(c(0.5,0.5,0.5,0.5), "cm"))
+
+p2 <- ggplot(rs_last_rental, aes(x = name, y = count)) +
+  geom_bar(stat = 'identity', color="blue", fill="blue") +
+  geom_text(aes(label=count), hjust=-0.05, size=2.5) +
+  coord_flip() +
+  ggtitle("Most Popular Rental Station 2016Q4") +
+  xlab("Frequency") +
+  ylab("Station") +
+  scale_color_fivethirtyeight("cyl") +
+  theme_fivethirtyeight() +
+  theme(plot.margin = unit(c(0.5,0.5,0.5,0.5), "cm"))
+
+p3 <- ggplot(rs_first_return, aes(x = name, y = count)) +
+  geom_bar(stat = 'identity', color="blue", fill="blue") +
+  geom_text(aes(label=count), hjust=-0.05, size=2.5) +
+  coord_flip() +
+  ggtitle("Most Popular Return Station 2015Q2") +
+  xlab("Frequency") +
+  ylab("Station") +
+  scale_color_fivethirtyeight("cyl") +
+  theme_fivethirtyeight() +
+  theme(plot.margin = unit(c(0.5,0.5,0.5,0.5), "cm"))
+
+p4 <- ggplot(rs_last_return, aes(x = name, y = count)) +
+  geom_bar(stat = 'identity', color="blue", fill="blue") +
+  geom_text(aes(label=count), hjust=-0.05, size=2.5) +
+  coord_flip() +
+  ggtitle("Most Popular Return Station 2016Q4") +
+  xlab("Frequency") +
+  ylab("Station") +
+  scale_color_fivethirtyeight("cyl") +
+  theme_fivethirtyeight() +
+  theme(plot.margin = unit(c(0.5,0.5,0.5,0.5), "cm"))
+
+p1 <- ggplot_gtable(ggplot_build(p1))
+p2 <- ggplot_gtable(ggplot_build(p2))
+p3 <- ggplot_gtable(ggplot_build(p3))
+p4 <- ggplot_gtable(ggplot_build(p4))
+
+maxWidth = grid::unit.pmax(p1$widths[2:3], p2$widths[2:3], p3$widths[2:3], p4$widths[2:3])
+p1$widths[2:3] <- maxWidth
+p2$widths[2:3] <- maxWidth
+p3$widths[2:3] <- maxWidth
+p4$widths[2:3] <- maxWidth
+```
+
+```{r fig.width=7.5, fig.height=5}
+# Plot histograms for selected quarters
+grid.arrange(p1, p2, p3, p4, heights = c(3, 3))
+```
+
+In the above graph, we see that the most popular stations are somewhat invariant to time. We chose the first and latest quarters to determine most popular rental and return stations. In all cases, the most popular rental and return station was [Rittenhouse Square](https://en.wikipedia.org/wiki/Rittenhouse_Square). This is intuitive as it is not only a popular tourist destination, being hailed as "one of the finest urban public spaces in the United States," (at least according to Wikipedia) but it is also in close proximity to the epicenter of Philadelphia. More specifically, in Q2 of 2015, the top five most popular rental and return stations were all the same, with the exact same ranking. Thus, it would seem that there is no preference for dropoff or pickup stations, but simply hubs for bike users. In Q4 of 2016, we observe many of the same return and and rental stations, but differences exist. For instance, Philadelphia Museum of Art (PMOA) is no longer in the top ten most popular return or rental stations whereas University City station is, which was not in Q2 of 2015. These variability are difficult to explain based on the dataset alone, but we surmise a couple of possible causes. First, the demographic of Indego users has shifted over time (from intrigued users to a those using it for routine trips). Second, seasonality may affect popular rental/return stations. There is a larger tourist cohort during the summer so that may be why PMOA is so high up in the rankings for Q2 of 2015. These are all conjectural, and it may serve as an interesting avenue for further exploration. However this is beyond the scope of our project.
+
+We postulate that the popularity of certain stations across time is due to the fact they are in areas of heavy pedestrian traffic (e.g. city centers), and they are in close proximity to one another but outside comfortable walking range. We thus put this idea to the test by considering spatial patterns and distances amongst these more popular stations.
+
+```{r, warning=FALSE, message=FALSE}
+# Popular stations - maps
+rs_first_return$type <- "Return"
+rs_last_return$type <- "Return"
+rs_first_rental$type <- "Rental"
+rs_last_rental$type <- "Rental"
+
+Q2Y15 <- rbind(rs_first_return, rs_first_rental)
+Q4Y16 <- rbind(rs_last_return, rs_last_rental)
+
+pal <- colorFactor(c("navy", "red"), domain = c("Return", "Rental"))
+
+# Purple: popular for both return and rental
+# Red: only for rental
+# Blue: only for return
+# Size: total frequency within the quarter
+
+# for Q2 of 2015
+leaflet(Q2Y15) %>%
+  addTiles() %>%
+  addProviderTiles('CartoDB.Positron') %>%
+  setView(lng=-75.163763, lat=39.952568, zoom = 13) %>%
+  addCircleMarkers(
+    radius = ~sqrt(count)/10,
+    color = ~pal(type),
+    stroke = FALSE, fillOpacity = 0.5, 
+    popup = ~name
+  )
+
+# for Q4 of 2016
+leaflet(Q4Y16) %>%
+  addTiles() %>%
+  addProviderTiles('CartoDB.Positron') %>%
+  setView(lng=-75.163763, lat=39.952568, zoom = 13) %>%
+  addCircleMarkers(
+    radius = ~sqrt(count)/10,
+    color = ~pal(type),
+    stroke = FALSE, fillOpacity = 0.5, 
+    popup = ~name
+  )
+```
+
+<br> In the above two interactive maps, the color purple represents popular rental and return stations, red for rental, and blue for return. The size of the dot denotes the total frequency of rides within the quarter (top: Q2 of 2015, bottom: bottom: Q4 of 2016). Crudely in line with our hypothesis, most of the most popular stations (by dot size) are concentrated in the epicenter of Philadelphia, which is roughly between Rittenhouse Square and Chinatown. We also see that PMOA is off in the distance to the northeast, but was a popular rental and return station in Q2 of 2015. This also corresponds to our theory that summer made this a popular hub for bike users. In Q4 of 2016, the shift in clustering of popular stations revolves around the two shores of Schuylkill River. This may corroborate our observation that people use it as a means to cross the river for routine commutes (e.g. between University City/Powelton Village and Rittenhouse Square) that are out of walking range but close enough for a bike ride. This is purely speculative but makes for an interesting idea to further investigate. We will touch on this a bit more in the next section.
+
+#### Daily traffic
+
+We put the theory of using Indego as a form of commute to the test, using daily traffic as a proxy for measurements. We picked Q2 of 2016, which is the quarter with the second most bike rides. We ideally would have liked to chosen Q3 of 2016 (most recent summer quarter), which is the most popular quarter, but this time period overlaps with summer vacation for many students. Since we did not want to ignore this particular demographic when analyzing the use of bike trips as a form of commute, we thus settled on Q2 of 2016. We considered average hourly uses of Indego bikes per day for every day of Q2 of 2016. We then plotted this on a 24-hour time-scale, which is shown below. As illustrated by the plot, there are drastic differences between weekday and weekend usage across any standard 24-hour window. On weekdays, peak periods of bike trips were around 8:00 AM and 5:00 PM, which correspond to the time frames that most individuals commute respectively to and from work and school. On weekends, however, peak usage occured during the afternoon. Moreover, more bike trips were observed on weekdays for almost any given time interval than that of weekends. Thus, this may potentially demonstrate that Indego has become a means for everyday commute in Philadelphia. 
+
+```{r}
+# 2. Peak Periods (group by hour, weekdays/weekends, season)
+# 2.1 Weekdays/weekends histogram of start (rental) hours for all stations in 2016Q2
+library(lubridate)
+Q2Y16 <- df[df$year==2016 & df$month %in% c("04","05","06"), ]
+Q2Y16$day_type <- chron::is.weekend(Q2Y16$date)
+Q2Y16$day_type <- ifelse(Q2Y16$day_type == 1, "Weekends", "Weekdays")
+n_wknds <- length(unique(Q2Y16[Q2Y16$day_type=="Weekends",14]))
+n_wkdys <- length(unique(Q2Y16[Q2Y16$day_type=="Weekdays",14]))
+wknds_peak <- Q2Y16[Q2Y16$day_type=="Weekends",] %>% group_by(s_hour,day_type) %>% summarize(rental_freq = n()/n_wknds)
+wkdys_peak <- Q2Y16[Q2Y16$day_type=="Weekdays",] %>% group_by(s_hour,day_type) %>% summarize(rental_freq = n()/n_wkdys)
+peak <- rbind(wknds_peak, wkdys_peak)
+rm(wknds_peak, wkdys_peak)
+peak$s_hour <- as.numeric(as.character(peak$s_hour))
+foo1 <- c(0,4,8,12,16,20)
+foo2 <- c("12am","4am","8am","12pm","4pm","8pm")
+```
+
+```{r fig.width=3, fig.height=3}
+ggplot(peak, aes(s_hour, rental_freq)) +
+  geom_line(aes(color=day_type)) +
+  geom_point(size = 1.1, aes(color=day_type)) +
+  labs(title="Peak Rental Hours 2016Q2",
+       subtitle="Average Daily Rental Frequency by Hour") +
+  scale_color_fivethirtyeight("") +
+  theme_fivethirtyeight() +
+  theme(plot.margin = unit(c(0.5,0.5,0.5,0.5), "cm")) +
+  scale_x_continuous(breaks = foo1, labels = foo2)
+```
+
+We now extend our analysis to all quarterly data available, which is shown in the plot immediately below. Much of the same trends from Q2 of 2016 can be generalized to other quarters. Apart from a few data points, the number of bike trips on weekdays are almost always larger than that of weekends. However, we also observe the aforementioned seasonality of bike trips, in which more bike trips are observed in the summer than in the winter months. This is especially true for trips on weekend (e.g. usage on weekends in Sept of 2015 is by far the largest). Therefore, use of Indego as leisure during summer weekends may be the causal variable of the peaks we observe. 
+
+```{r}
+# 2.2 Month aggregation of results
+quarter_aggr <- df
+#quarter_aggr$quarter <- (as.numeric(as.character(quarter_aggr$month)) - 1) %/% 3 + 1
+quarter_aggr$day_type <- chron::is.weekend(quarter_aggr$date)
+quarter_aggr$day_type <- ifelse(quarter_aggr$day_type == 1, "Weekends", "Weekdays")
+quarter_aggr <- quarter_aggr %>% select(year, month, date, day_type)
+quarter_aggr <- quarter_aggr %>% group_by(date, year, month, day_type) %>% summarise(count=n())
+quarter_aggr <- quarter_aggr %>% group_by(year, month, day_type) %>% summarise(average=mean(count))
+quarter_aggr$no <- (0:(nrow(quarter_aggr)-1)) %/% 2 + 1
+foo1 <- seq(1,21,by=3)
+foo2 <- c("Apr 2015","Jul 2015","Oct 2015", "Jan 2016", "Apr 2016","Jul 2016","Oct 2016")
+```
+
+```{r fig.width=3, fig.height=3}
+ggplot(quarter_aggr, aes(no, average)) +
+  geom_line(aes(color=day_type)) +
+  geom_point(size = 1.1, aes(color=day_type)) +
+  labs(title="Monthly Rental Pattern",
+       subtitle="Daily Average of Rental Frequencies") +
+  scale_color_fivethirtyeight("") +
+  theme_fivethirtyeight() +
+  theme(plot.margin = unit(c(0.5,0.5,0.5,0.5), "cm")) +
+  scale_x_continuous(breaks = foo1, labels = foo2) +
+  theme(axis.text.x = element_text(angle = 30, hjust = 1))
+```
+
+It is important to note that one of the more glaring deficiencies of our raw dataset is the lack of historical data; we only have data from April 2015 onwards. It thus makes it more difficult to draw conclusive remakrs regarding yearly or even seasonal patterns that require data over longer time periods. Nonetheless, several important trends can still be observed over the time period for which the dataset is available.
+
+For instance, let us take a look at monthly bike trips as determined from the number of average trips per day, shown below. Such an aggregation, as opposed to taking the monthly average as is, was done to smooth out daily fluctuations that can be considered noise as we make our time scale more granular. We observe two main themes. First, there seems to be particular months in which bike trips are more and less frequent. Across any given calendar year, there are more bike rides through the summer, ultimately peaking in September. Bike trips decline thereafter, hitting low points in December/January. This is intuitive as good weather is correlated with how willing and practical bike rides function as a means of transportation. Thus, with abysmal weather conditions in the winter, people are probably less willing to use Indego bikes. Second, we observe Indego's popularity increase through time based on the number of bike trips in a given month as compared to the same month in a preceding year. In Sept 2016, usage was at an all-time high, with more than 2600 rides per day (cf. approximately 2250 rides in Sept 2016). In Dec 2016, bike rides were roughly a little higher than 1000 rides per day (cf. 600 in Dec 2015). It should be noted that confounding factors such as weather conditions in a given year (e.g. El Nino) and the insufficient historical data we have on-hand may somewhat render our results questionable. We, however, believe this is not the case since more ecofriendly means of transportation should theoretically become more popular due to growing environmental sentiments in the mass population.
+
+```{r results="hide",fig.width=3, fig.height=3}
+# Monthly Bike Trips
+df_count_by_month <- df %>% group_by(year, month) %>% summarize(count = n())
+df_average_by_month <- df %>% group_by(year, month, day) %>% summarize(count = n())
+df_average_by_month <- df_average_by_month %>% group_by(year, month) %>% summarize(avg = mean(count))
+df_count_by_month$date <- zoo::as.yearmon(paste(df_count_by_month$year, df_count_by_month$month), "%Y %m")
+df_count_by_month$average <- df_average_by_month$avg
+df_count_by_month$no <- 1:nrow(df_count_by_month)
+df_count_by_month <- df_count_by_month[,-c(1,2)]
+rm(df_average_by_month)
+df_count_by_month <- tidyr::gather(df_count_by_month, type, value, c(1,3))
+
+foo1 <- c(0, 500, 1000, 1500, 2000, 2500, 3000)
+foo2 <- c(3, 6, 9, 12, 15, 18, 21)
+
+ggplot() +
+  geom_line(aes(no, value, color="blue"), df_count_by_month[df_count_by_month$type=="average",]) +
+  geom_point(size = 1.1) +
+  ggtitle("Monthly Indego Bike Trips\n(Average per day)") +
+  xlab("Month") +
+  ylab("Count") +
+  scale_color_fivethirtyeight("cyl") +
+  theme_fivethirtyeight() +
+  theme(axis.text.x = element_text(angle = 30, hjust = 1),legend.position="none") +
+  scale_y_continuous(limits = c(0, 3000), breaks = foo1) +
+  scale_x_continuous(breaks = foo2, labels = df_count_by_month$date[foo2]) +
+  theme(plot.margin = unit(c(0.5,0.5,0.5,0.5), "cm"))
+```
+
+Based on the above findings, we can say with a certain level of confidence that the volume of bike trips is an important indicator of Indego's utility rate over different cross-sections of time. However, it does little to tell us how (not how much) Indego is being utilized. With this in mind, we motivate our next portion of analysis.
+
+Since the inherent purpose of bike share networks are to mediate relatively short commutes, we want to examine the length of each trip. We surmise that shorter trips (0-30 minutes) should be the ideal range since anything beyond that is simply exercise and other transportation methods become increasingly more appealing. We consequently explore features related to the length of bike rides next.
+
+#### Trip durations
+
+In this section, we try to elucidate the more salient patterns pertaining to trip durations. From the duration plots below, we observe most people choose public bikes for short commutes. The most prevalent duration of bike rides lie between 5 and 10 minutes. The second most common duration of bike rides are 10-15 minutes. In fact, the majority of trips are less than 30 minutes. On the contrary, we see that long trips are actually outliers in our dataset. Trips between two and four hours only make up 0.9% of all rides, and trips exceeding 4 hours make up 0.7% of the total.
+
+#### User profiles
+
+In this section, we examine the attributes related to Indego bike users. As we can see from the total counts across different passholder types, there are some insights worth mentioning. First and foremost, there does not seem to be clear patterns in regards to daily trips for different passholders.
+
+From the histograms that illustrate bike trips by hours of data contingent on the various trip routes and passholder types, we see several salient patterns:
+1. The most popular hours to rent and return are 8:00 and 17:00 respectively, which reflect the time periods that people go to and leave work or school.
+2. One-way trips and 30-day passes are the most popular choices. Only a small fraction of riders choose flexible accounts. The rest of the bike sharing demographic are walk-up renters.
+3. Peak renting hours are the intervals 7:00-10:00 and 14:00-20:00, and the peak return hours are the intervals 8:00-10:00 and 15:00-20:00. We can conjecturally demonstrate that most riders opt for approximately one hour rides.
+
+## Conclusion
