@@ -8,7 +8,7 @@ library(plotly)
 
 ############################ Load Data  ############################
 
-indego_stations <- read.csv("../data/indego_stations.csv", header=T)
+indego_stations <- read.csv("./data/indego_stations.csv", header=T)
 Y16Q4 <- read.csv("../data/Indego_Trips_2016Q4.csv", header=T)
 Y16Q3 <- read.csv("../data/Indego_Trips_2016Q3.csv", header=T)
 Y16Q2 <- read.csv("../data/Indego_Trips_2016Q2.csv", header=T)
@@ -63,8 +63,16 @@ Y16Q4 <- parseTime_16(Y16Q4)
 df <- rbind(Y15Q2, Y15Q3, Y15Q4, Y16Q1, Y16Q2, Y16Q3, Y16Q4)
 rm(Y15Q2, Y15Q3, Y15Q4, Y16Q1, Y16Q2, Y16Q3, Y16Q4)
 
+# Begin Data Cleaning
+dataClean <- function(df) {
+  df$duration <- df$duration / 60
+  df[, -c(1, 3, 4, 6, 7, 9, 10, 12)]
+}
+df <- dataClean(df)
+
 write.table(df, "../data/cleanData.txt")
 write.table(station_loc, "../data/station_loc")
+
 
 # Save Environment
 

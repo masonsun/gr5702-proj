@@ -2,6 +2,9 @@
 .Rhistory
 .Rapp.history
 
+# Ignore all .csv files
+*.csv
+
 # Session Data files
 .RData
 

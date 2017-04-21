@@ -13,6 +13,7 @@ library(shiny)
 library(shinydashboard)
 
 ############################ Load data  ############################
+# must run from root folder
 indego_stations <- read.csv("../data/indego_stations.csv", header=T)
 Y16Q4 <- read.csv("../data/Indego_Trips_2016Q4.csv", header=T)
 Y16Q3 <- read.csv("../data/Indego_Trips_2016Q3.csv", header=T)
